@@ -15,9 +15,6 @@
 #include <GL/glu.h>
 #include "glut.h"
 
-#include "glslprogram.h"
-#include "glslprogram.cpp"
-
 
 //	This is a sample OpenGL / GLUT program
 //
@@ -35,7 +32,7 @@
 //		6. The transformations to be reset
 //		7. The program to quit
 //
-//	Author:			Joe Graphics
+//	Author:			Joshua Strozzi
 
 // NOTE: There are a lot of good reasons to use const variables instead
 // of #define's.  However, Visual C++ does not allow a const variable
@@ -59,6 +56,7 @@ const int GLUIFALSE = { false };
 // the escape key:
 
 #define ESCAPE		0x1b
+
 
 
 // initial window size:
@@ -171,7 +169,22 @@ const GLfloat FOGDENSITY  = { 0.30f };
 const GLfloat FOGSTART    = { 1.5 };
 const GLfloat FOGEND      = { 4. };
 
+#define NUMCURVES 10
 
+
+struct Point
+{
+	float x0, y0, z0;       // initial coordinates
+	float x, y, z;        // animated coordinates
+};
+
+struct Curve
+{
+	float r, g, b;			//color of curve
+	Point p0, p1, p2, p3;	//4 points defining curve
+};
+
+#define MS_IN_ANIMATION	10000
 // non-constant global variables:
 
 int		ActiveButton;			// current button that is down
@@ -188,9 +201,11 @@ int		WhichColor;				// index into Colors[ ]
 int		WhichProjection;		// ORTHO or PERSP
 int		Xmouse, Ymouse;			// mouse values
 float	Xrot, Yrot;				// rotation angles in degrees
-GLSLProgram	*Pattern;
-float		 Time;
-
+Curve	Curves[NUMCURVES];		//If you are creating a pattern of curves
+Curve	Stem;					//If you're not
+float	Time;					//Current time	
+bool	Freeze=1;
+bool	controlLines = 0, controlPoints = 0;
 
 
 // function prototypes:
@@ -220,6 +235,9 @@ void	Visibility( int );
 
 void	Axes( float );
 void	HsvRgb( float[3], float [3] );
+void	RotateX(Point, float, float, float, float);
+void	RotateY(Point, float, float, float, float);
+void	RotateZ(Point, float, float, float, float);
 
 // main program:
 
@@ -277,8 +295,18 @@ main( int argc, char *argv[ ] )
 void
 Animate( )
 {
+	int ms = glutGet(GLUT_ELAPSED_TIME);
+	ms %= MS_IN_ANIMATION;
+	Time = (float)ms / (float)MS_IN_ANIMATION;
 	// put animation stuff in here -- change some global variables
 	// for Display( ) to find:
+	int it;
+
+	for (it = 0; it < NUMCURVES; it++) {
+		Curves[it].p1.z = sin(Time * 50);
+		Curves[it].p2.z = sin(Time * 50);
+	}
+
 
 	// force a call to Display( ) next time it is convenient:
 
@@ -290,43 +318,43 @@ Animate( )
 // draw the complete scene:
 
 void
-Display( )
+Display()
 {
-	if( DebugOn != 0 )
+	if (DebugOn != 0)
 	{
-		fprintf( stderr, "Display\n" );
+		fprintf(stderr, "Display\n");
 	}
 
 
 	// set which window we want to do the graphics into:
 
-	glutSetWindow( MainWindow );
+	glutSetWindow(MainWindow);
 
 
 	// erase the background:
 
-	glDrawBuffer( GL_BACK );
-	glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+	glDrawBuffer(GL_BACK);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	if( DepthBufferOn != 0 )
-		glEnable( GL_DEPTH_TEST );
+	if (DepthBufferOn != 0)
+		glEnable(GL_DEPTH_TEST);
 	else
-		glDisable( GL_DEPTH_TEST );
+		glDisable(GL_DEPTH_TEST);
 
 
 	// specify shading to be flat:
 
-	glShadeModel( GL_FLAT );
+	glShadeModel(GL_FLAT);
 
 
 	// set the viewport to a square centered in the window:
 
-	GLsizei vx = glutGet( GLUT_WINDOW_WIDTH );
-	GLsizei vy = glutGet( GLUT_WINDOW_HEIGHT );
+	GLsizei vx = glutGet(GLUT_WINDOW_WIDTH);
+	GLsizei vy = glutGet(GLUT_WINDOW_HEIGHT);
 	GLsizei v = vx < vy ? vx : vy;			// minimum dimension
-	GLint xl = ( vx - v ) / 2;
-	GLint yb = ( vy - v ) / 2;
-	glViewport( xl, yb,  v, v );
+	GLint xl = (vx - v) / 2;
+	GLint yb = (vy - v) / 2;
+	glViewport(xl, yb, v, v);
 
 
 	// set the viewing volume:
@@ -334,81 +362,138 @@ Display( )
 	// given as DISTANCES IN FRONT OF THE EYE
 	// USE gluOrtho2D( ) IF YOU ARE DOING 2D !
 
-	glMatrixMode( GL_PROJECTION );
-	glLoadIdentity( );
-	if( WhichProjection == ORTHO )
-		glOrtho( -3., 3.,     -3., 3.,     0.1, 1000. );
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	if (WhichProjection == ORTHO)
+		glOrtho(-3., 3., -3., 3., 0.1, 1000.);
 	else
-		gluPerspective( 90., 1.,	0.1, 1000. );
+		gluPerspective(90., 1., 0.1, 1000.);
 
 
 	// place the objects into the scene:
 
-	glMatrixMode( GL_MODELVIEW );
-	glLoadIdentity( );
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 
 
 	// set the eye position, look-at position, and up-vector:
 
-	gluLookAt( 0., 0., 3.,     0., 0., 0.,     0., 1., 0. );
+	gluLookAt(0., 0., 3., 0., 0., 0., 0., 1., 0.);
 
 
 	// rotate the scene:
 
-	glRotatef( (GLfloat)Yrot, 0., 1., 0. );
-	glRotatef( (GLfloat)Xrot, 1., 0., 0. );
+	glRotatef((GLfloat)Yrot, 0., 1., 0.);
+	glRotatef((GLfloat)Xrot, 1., 0., 0.);
 
 
 	// uniformly scale the scene:
 
-	if( Scale < MINSCALE )
+	if (Scale < MINSCALE)
 		Scale = MINSCALE;
-	glScalef( (GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale );
+	glScalef((GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale);
 
 
 	// set the fog parameters:
 
-	if( DepthCueOn != 0 )
+	if (DepthCueOn != 0)
 	{
-		glFogi( GL_FOG_MODE, FOGMODE );
-		glFogfv( GL_FOG_COLOR, FOGCOLOR );
-		glFogf( GL_FOG_DENSITY, FOGDENSITY );
-		glFogf( GL_FOG_START, FOGSTART );
-		glFogf( GL_FOG_END, FOGEND );
-		glEnable( GL_FOG );
+		glFogi(GL_FOG_MODE, FOGMODE);
+		glFogfv(GL_FOG_COLOR, FOGCOLOR);
+		glFogf(GL_FOG_DENSITY, FOGDENSITY);
+		glFogf(GL_FOG_START, FOGSTART);
+		glFogf(GL_FOG_END, FOGEND);
+		glEnable(GL_FOG);
 	}
 	else
 	{
-		glDisable( GL_FOG );
+		glDisable(GL_FOG);
 	}
 
 
 	// possibly draw the axes:
 
-	if( AxesOn != 0 )
+	if (AxesOn != 0)
 	{
-		glColor3fv( &Colors[WhichColor][0] );
-		glCallList( AxesList );
+		glColor3fv(&Colors[WhichColor][0]);
+		glCallList(AxesList);
 	}
 
 
 	// since we are using glScalef( ), be sure normals get unitized:
 
-	glEnable( GL_NORMALIZE );
+	glEnable(GL_NORMALIZE);
 
 
 	// draw the current object:
+	/*
+	struct Curve test;
+	test.p0.x = -1.;
+	test.p0.y = 0.;
+	test.p0.z = 0.;
 
-	glCallList( BoxList );
+	test.p1.x = -.5;
+	test.p1.y = 1.;
+	test.p1.z = 0.;
 
-	if( DepthFightingOn != 0 )
-	{
-		glPushMatrix( );
-			glRotatef( 90.,   0., 1., 0. );
-			glCallList( BoxList );
-		glPopMatrix( );
+	test.p2.x = .5;
+	test.p2.y = 1.;
+	test.p2.z = 0.;
+
+	test.p3.x = 1.;
+	test.p3.y = 0.;
+	test.p3.z = 0.;
+	*/
+
+	struct Curve* ptr;
+	int curr;
+	int NUMPOINTS = 20;
+	for (curr = 0, ptr = Curves; curr < NUMCURVES; curr++, ptr++) {
+
+		glLineWidth(3.);
+
+		glColor3f(0., 1., 1.);
+		if (curr == 0)
+			glColor3f(1, 0, 0);
+		glBegin(GL_LINE_STRIP);
+
+		for (int it = 0; it <= NUMPOINTS; it++) {
+			float t = (float)it / (float)NUMPOINTS;
+			float omt = 1.f - t;
+			float x = omt * omt*omt*Curves[curr].p0.x + 3.f*t*omt*omt*Curves[curr].p1.x + 3.f*t*t*omt*Curves[curr].p2.x + t * t*t*Curves[curr].p3.x;
+			float y = omt * omt*omt*Curves[curr].p0.y + 3.f*t*omt*omt*Curves[curr].p1.y + 3.f*t*t*omt*Curves[curr].p2.y + t * t*t*Curves[curr].p3.y;
+			float z = omt * omt*omt*Curves[curr].p0.z + 3.f*t*omt*omt*Curves[curr].p1.z + 3.f*t*t*omt*Curves[curr].p2.z + t * t*t*Curves[curr].p3.z;
+
+			glVertex3f(x, y, z);
+
+		}
+	}
+	glEnd();
+	glLineWidth(1.);
+
+
+	if (controlPoints) {
+		for (int curr = 0; curr < NUMCURVES; curr++) {
+			glBegin(GL_POINTS);
+			glVertex3f(Curves[curr].p0.x, Curves[curr].p0.y, Curves[curr].p0.z);
+			glVertex3f(Curves[curr].p1.x, Curves[curr].p1.y, Curves[curr].p1.z);
+			glVertex3f(Curves[curr].p2.x, Curves[curr].p2.y, Curves[curr].p2.z);
+			glVertex3f(Curves[curr].p3.x, Curves[curr].p3.y, Curves[curr].p3.z);
+			glEnd();
+			glPointSize(5.);
+		}
 	}
 
+	if (controlLines) {
+		for (int curr = 0; curr < NUMCURVES; curr++) {
+			glBegin(GL_LINE_STRIP);
+			glVertex3f(Curves[curr].p0.x, Curves[curr].p0.y, Curves[curr].p0.z);
+			glVertex3f(Curves[curr].p1.x, Curves[curr].p1.y, Curves[curr].p1.z);
+			glVertex3f(Curves[curr].p2.x, Curves[curr].p2.y, Curves[curr].p2.z);
+			glVertex3f(Curves[curr].p3.x, Curves[curr].p3.y, Curves[curr].p3.z);
+			glEnd();
+		}
+	}
 
 	// draw some gratuitous text that just rotates on top of the scene:
 
@@ -434,7 +519,7 @@ Display( )
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity( );
 	glColor3f( 1., 1., 1. );
-	DoRasterString( 5., 5., 0., "Text That Doesn't" );
+	DoRasterString( 5., 5., 0., "Joshua Strozzi" );
 
 
 	// swap the double-buffered framebuffers:
@@ -672,7 +757,7 @@ InitGraphics( )
 	// open the window and set its title:
 
 	MainWindow = glutCreateWindow( WINDOWTITLE );
-	glutSetWindowTitle( WINDOWTITLE );
+	glutSetWindowTitle( "Joshua Strozzi - CS450 Project 6" );
 
 	// set the framebuffer clear values:
 
@@ -722,6 +807,72 @@ InitGraphics( )
 
 	// init glew (a window must be open to do this):
 
+
+	//Initializing array --------------------------------
+	int i;
+	float r = 1., pi = 3.14159;
+	float radian1,radian2, angle1, angle2;
+	
+	for (i = 0; i < NUMCURVES; i++) {
+		angle1 = (360 * (i*2))/(NUMCURVES*2) ;
+		radian1 = (angle1*pi)/ 180;
+		printf("Angle1: %f\n", angle1);
+
+		Curves[i].p0.x0 = r * cos(radian1) ;		//first point x
+
+
+
+		Curves[i].p1.x0 = Curves[i].p0.x0  * 1.5;		//second point x 
+
+		
+	
+		Curves[i].p0.y0 = r * sin(radian1);			//first point y
+	
+		Curves[i].p1.y0 = Curves[i].p0.y0 * 1.5;		//second point y
+		
+		
+		//second two points
+		angle2 = (360 * ((i * 2) + 1) ) / (NUMCURVES * 2);		//if i = 0, should be (360 / (1/20))
+		printf("%dAngle2: %f\n", i, angle2);
+		radian2 = ((angle2*pi) / 180);
+
+		Curves[i].p3.x0 = r * cos(radian2 );			
+		Curves[i].p2.x0 = Curves[i].p3.x0 * 1.5;
+
+		Curves[i].p3.y0 = r * sin(radian2);			
+		Curves[i].p2.y0 = Curves[i].p3.y0 * 1.5;
+
+
+
+		Curves[i].p0.z0 = 0;
+		Curves[i].p1.z0 = 0;
+		Curves[i].p2.z0 = 0;
+		Curves[i].p3.z0 = 0;
+
+
+		Curves[i].p0.x = Curves[i].p0.x0;
+		Curves[i].p0.y = Curves[i].p0.y0;
+		Curves[i].p0.z = Curves[i].p0.z0;
+		
+		Curves[i].p1.x = Curves[i].p1.x0;
+		Curves[i].p1.y = Curves[i].p1.y0;
+		Curves[i].p1.z = Curves[i].p1.z0;
+
+		Curves[i].p2.x = Curves[i].p2.x0;
+		Curves[i].p2.y = Curves[i].p2.y0;
+		Curves[i].p2.z = Curves[i].p2.z0;
+
+		Curves[i].p3.x = Curves[i].p3.x0;
+		Curves[i].p3.y = Curves[i].p3.y0;
+		Curves[i].p3.z = Curves[i].p3.z0;
+
+
+
+	}
+	//End Initialization
+
+
+
 #ifdef WIN32
 	GLenum err = glewInit( );
 	if( err != GLEW_OK )
@@ -734,18 +885,6 @@ InitGraphics( )
 #endif
 
 
-	Pattern = new GLSLProgram();
-	bool valid = Pattern->Create("pattern.vert", "pattern.frag");
-	if (!valid)
-	{
-		fprintf(stderr, "Shader cannot be created!\n");
-		DoMainMenu(QUIT);
-	}
-	else
-	{
-		fprintf(stderr, "Shader created.\n");
-	}
-	Pattern->SetVerbose(false);
 }
 
 
@@ -846,6 +985,25 @@ Keyboard( unsigned char c, int x, int y )
 		case 'p':
 		case 'P':
 			WhichProjection = PERSP;
+			break;
+		
+		case 'f':
+		case 'F':
+			Freeze = !Freeze;
+			if (Freeze)
+				glutIdleFunc(NULL);
+			else
+				glutIdleFunc(Animate);
+			break;
+
+		case 'l':
+		case 'L':
+			controlLines = !controlLines;
+			break;
+
+		case 'd':
+		case 'D':
+			controlPoints = !controlPoints;
 			break;
 
 		case 'q':
@@ -1198,4 +1356,56 @@ HsvRgb( float hsv[3], float rgb[3] )
 	rgb[0] = r;
 	rgb[1] = g;
 	rgb[2] = b;
+}
+
+
+void
+RotateX(Point *p, float deg, float xc, float yc, float zc)
+{
+	float rad = deg * (M_PI / 180.f);         // radians
+	float x = p->x0 - xc;
+	float y = p->y0 - yc;
+	float z = p->z0 - zc;
+
+	float xp = x;
+	float yp = y * cos(rad) - z * sin(rad);
+	float zp = y * sin(rad) + z * cos(rad);
+
+	p->x = xp + xc;
+	p->y = yp + yc;
+	p->z = zp + zc;
+}
+
+void
+RotateY(Point *p, float deg, float xc, float yc, float zc)
+{
+	float rad = deg * (M_PI / 180.f);         // radians
+	float x = p->x0 - xc;
+	float y = p->y0 - yc;
+	float z = p->z0 - zc;
+
+	float xp = x * cos(rad) + z * sin(rad);
+	float yp = y;
+	float zp = -x * sin(rad) + z * cos(rad);
+
+	p->x = xp + xc;
+	p->y = yp + yc;
+	p->z = zp + zc;
+}
+
+void
+RotateZ(Point *p, float deg, float xc, float yc, float zc)
+{
+	float rad = deg * (M_PI / 180.f);         // radians
+	float x = p->x0 - xc;
+	float y = p->y0 - yc;
+	float z = p->z0 - zc;
+
+	float xp = x * cos(rad) - y * sin(rad);
+	float yp = x * sin(rad) + y * cos(rad);
+	float zp = z;
+
+	p->x = xp + xc;
+	p->y = yp + yc;
+	p->z = zp + zc;
 }
